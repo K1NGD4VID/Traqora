@@ -1,0 +1,6 @@
+interface:
+  display_name: "Traqora"
+  short_description: "Repo-specific patterns and workflows for Traqora"
+  default_prompt: "Use the Traqora repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
