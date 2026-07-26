@@ -1,0 +1,416 @@
+# Instincts generated from https://github.com/K1NGD4VID/Traqora
+# Generated: 2026-07-26T16:10:21.609Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: Traqora-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat: implement issues #390, #391, #392, #393
+
+---
+id: Traqora-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Commit Length
+
+## Action
+
+Keep commit messages concise (~45 characters)
+
+## Evidence
+
+- Average commit message length: 45 chars
+- Based on 1 commits
+
+---
+id: Traqora-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: Traqora-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: Traqora-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: 
+
+---
+id: Traqora-test-framework
+trigger: "when writing tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Test Framework
+
+## Action
+
+Use jest as the test framework
+
+## Evidence
+
+- Test framework detected: jest
+- File pattern: *.test.ts
+
+---
+id: Traqora-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: Traqora-test-mocking
+trigger: "when mocking dependencies in tests"
+confidence: 0.75
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Test Mocking
+
+## Action
+
+Use jest.mock for mocking
+
+## Evidence
+
+- Mocking pattern detected: jest.mock
+- Consistent across test files
+
+---
+id: Traqora-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/K1NGD4VID/Traqora
+---
+
+# Traqora Test Types
+
+## Action
+
+Write unit, integration tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration
+- Coverage config: no
+
+---
+id: traqora-instinct-file-naming
+trigger: "When creating a new file in the codebase"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct File Naming
+
+## Action
+
+Name the file using camelCase
+
+## Evidence
+
+- Pattern in files: file naming convention in codeStyle.namingConventions.files
+
+---
+id: traqora-instinct-function-naming
+trigger: "When defining a new function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Function Naming
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+
+---
+id: traqora-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+
+---
+id: traqora-instinct-constant-naming
+trigger: "When declaring a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+
+---
+id: traqora-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Import Style
+
+## Action
+
+Use either default or named imports as appropriate (mixed style allowed)
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+
+---
+id: traqora-instinct-export-style
+trigger: "When exporting modules or symbols"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+
+---
+id: traqora-instinct-test-file-naming
+trigger: "When creating a test file"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Test File Naming
+
+## Action
+
+Name the file with the pattern *.test.ts
+
+## Evidence
+
+- Pattern in testing.filePattern
+
+---
+id: traqora-instinct-test-framework
+trigger: "When writing or running tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Test Framework
+
+## Action
+
+Use the Jest testing framework
+
+## Evidence
+
+- Pattern in testing.framework
+
+---
+id: traqora-instinct-test-types
+trigger: "When designing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Test Types
+
+## Action
+
+Include both unit and integration tests as appropriate
+
+## Evidence
+
+- Pattern in testing.testTypes
+
+---
+id: traqora-instinct-mocking
+trigger: "When mocking dependencies in tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Mocking
+
+## Action
+
+Use jest.mock for mocking
+
+## Evidence
+
+- Pattern in testing.mockingStyle
+
+---
+id: traqora-instinct-commit-format
+trigger: "When making a git commit"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Commit Format
+
+## Action
+
+Format the commit message using the conventional commits style, starting with a prefix such as 'feat:'
+
+## Evidence
+
+- Pattern in commits.type and commits.prefixes
+- Seen in commit: feat: implement issues #390, #391, #392, #393
+
+---
+id: traqora-instinct-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: K1NGD4VID/Traqora
+---
+
+# Traqora Instinct Commit Length
+
+## Action
+
+Keep the commit message concise, around 45 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength
+
