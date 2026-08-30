@@ -1,0 +1,162 @@
+name: SBOM Generation
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - "packages/backend/**"
+      - "packages/client/**"
+      - "docker-compose.yml"
+      - "Dockerfile.*"
+      - ".github/workflows/sbom.yml"
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/traqora-backend
+  CLIENT_IMAGE: ghcr.io/${{ github.repository_owner }}/traqora-client
+
+jobs:
+  # ── Build backend image ─────────────────────────────────────────────
+  build-backend:
+    name: Build backend image
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.BACKEND_IMAGE }}
+          tags: |
+            type=sha
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Load image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          load: true
+          tags: ${{ env.BACKEND_IMAGE }}:sbom
+
+  # ── Build client image ──────────────────────────────────────────────
+  build-client:
+    name: Build client image
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.CLIENT_IMAGE }}
+          tags: |
+            type=sha
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build client
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.client
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Load image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.client
+          load: true
+          tags: ${{ env.CLIENT_IMAGE }}:sbom
+
+  # ── Generate SBOMs ─────────────────────────────────────────────────
+  sbom:
+    name: Generate SPDX SBOM
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-client]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+        id: syft
+
+      - name: Generate backend SBOM
+        run: |
+          syft "${{ env.BACKEND_IMAGE }}:sbom" \
+            -o spdx-json=sbom-backend.spdx.json \
+            -o spdx=sbom-backend.spdx
+        env:
+          DOCKER_HOST: unix:///var/run/docker.sock
+
+      - name: Generate client SBOM
+        run: |
+          syft "${{ env.CLIENT_IMAGE }}:sbom" \
+            -o spdx-json=sbom-client.spdx.json \
+            -o spdx=sbom-client.spdx
+        env:
+          DOCKER_HOST: unix:///var/run/docker.sock
+
+      - name: Upload SBOMs as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-reports
+          path: |
+            sbom-backend.spdx.json
+            sbom-backend.spdx
+            sbom-client.spdx.json
+            sbom-client.spdx
+          retention-days: 90
+
+      - name: Attach SBOMs to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for f in sbom-backend.spdx.json sbom-backend.spdx sbom-client.spdx.json sbom-client.spdx; do
+            gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
+          done

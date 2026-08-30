@@ -110,7 +110,13 @@ Verify that the services are healthy and running correctly.
 ## Phase 4: Rollback Strategy
 If critical issues occur during deployment and cannot be quickly patched:
 
-1. **Revert Frontend**: Restore the previous Next.js production build/container image.
-2. **Revert Backend**: Restore the previous backend build/container image.
-3. **Database Restore**: If schema changes are breaking and cannot be backward-compatible, restore the database from the pre-deployment backup.
-4. **On-chain Action**: If contract bugs are present, freeze operations (if the contract supports a pause/admin freeze method) or redeploy/upgrade the contract address.
+1. **Automated rollback** (preferred): Run the rollback script to revert the ECS service to the previous task definition:
+   ```bash
+   DRY_RUN=true ENVIRONMENT=production ./scripts/rollback.sh   # dry-run first
+   ENVIRONMENT=production ./scripts/rollback.sh                # execute rollback
+   ```
+   The script discovers the previous task definition, updates the ECS service, waits for stability, and optionally sends a Slack alert.
+2. **Revert Frontend**: Restore the previous Next.js production build/container image.
+3. **Revert Backend**: Restore the previous backend build/container image.
+4. **Database Restore**: If schema changes are breaking and cannot be backward-compatible, restore the database from the pre-deployment backup.
+5. **On-chain Action**: If contract bugs are present, freeze operations (if the contract supports a pause/admin freeze method) or redeploy/upgrade the contract address.

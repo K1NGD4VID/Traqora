@@ -1,129 +1,169 @@
-locals {
-  common_tags = merge({
-    Project     = var.project_name
-    Environment = var.environment
-  }, var.tags)
+# ---------------------------------------------------------------------------
+# VPC
+# ---------------------------------------------------------------------------
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
 
-  frontend_hosted_domain = var.frontend_domain != "" ? var.frontend_domain : "app.${var.root_domain_name}"
-  backend_hosted_domain  = var.backend_domain != "" ? var.backend_domain : "api.${var.root_domain_name}"
+  tags = { Name = "${var.project_name}-${var.environment}-vpc" }
 }
 
-module "vpc" {
-  source              = "./modules/vpc"
-  project_name        = var.project_name
-  environment         = var.environment
-  cidr_block          = var.vpc_cidr
-  public_subnet_cidrs = var.public_subnet_cidrs
-  private_subnet_cidrs = var.private_subnet_cidrs
-  availability_zones  = var.availability_zones
-  tags                = local.common_tags
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+  tags   = { Name = "${var.project_name}-${var.environment}-igw" }
 }
 
-module "acm" {
-  source            = "./modules/acm"
-  domain_name       = local.frontend_hosted_domain
-  alternative_names = [local.backend_hosted_domain]
-  hosted_zone_id    = var.route53_hosted_zone_id
-  tags              = local.common_tags
+resource "aws_subnet" "public_a" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "${var.aws_region}a"
+  map_public_ip_on_launch = true
+  tags                    = { Name = "${var.project_name}-${var.environment}-public-a" }
 }
 
-module "rds" {
-  source                = "./modules/rds"
-  project_name          = var.project_name
-  environment           = var.environment
-  vpc_id                = module.vpc.vpc_id
-  subnet_ids            = module.vpc.private_subnets
-  security_group_ids    = [module.vpc.default_security_group_id]
-  db_instance_class     = var.db_instance_class
-  engine                = var.db_engine
-  engine_version        = var.db_engine_version
-  db_name               = var.db_name
-  username              = var.db_username
-  password              = var.db_password
-  allocated_storage     = var.db_allocated_storage
-  backup_retention_days = var.db_backup_retention_days
-  multi_az              = var.db_multi_az
-  tags                  = local.common_tags
+resource "aws_subnet" "public_b" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "${var.aws_region}b"
+  map_public_ip_on_launch = true
+  tags                    = { Name = "${var.project_name}-${var.environment}-public-b" }
 }
 
-module "redis" {
-  source             = "./modules/redis"
-  project_name       = var.project_name
-  environment        = var.environment
-  vpc_id             = module.vpc.vpc_id
-  subnet_ids         = module.vpc.private_subnets
-  security_group_ids = [module.vpc.default_security_group_id]
-  cache_node_type    = var.cache_node_type
-  num_cache_clusters = var.cache_node_count
-  engine_version     = var.cache_engine_version
-  tags               = local.common_tags
-}
-
-module "eks" {
-  source                          = "./modules/eks"
-  project_name                    = var.project_name
-  environment                     = var.environment
-  cluster_name                    = "${var.project_name}-${var.environment}-eks"
-  vpc_id                          = module.vpc.vpc_id
-  subnet_ids                      = module.vpc.private_subnets
-  public_subnet_ids               = module.vpc.public_subnets
-  cluster_security_group_id       = module.vpc.default_security_group_id
-  node_instance_type              = var.eks_node_instance_type
-  desired_capacity                = var.eks_desired_capacity
-  max_capacity                    = var.eks_max_capacity
-  min_capacity                    = var.eks_min_capacity
-  tags                            = local.common_tags
-}
-
-module "alb" {
-  source          = "./modules/alb"
-  project_name    = var.project_name
-  environment     = var.environment
-  vpc_id          = module.vpc.vpc_id
-  public_subnets  = module.vpc.public_subnets
-  certificate_arn = module.acm.certificate_arn
-  tags            = local.common_tags
-}
-
-module "s3" {
-  source      = "./modules/s3"
-  project_name = var.project_name
-  environment  = var.environment
-  bucket_name  = "${var.project_name}-${var.environment}-assets"
-  tags         = local.common_tags
-}
-
-module "cloudfront" {
-  source            = "./modules/cloudfront"
-  project_name      = var.project_name
-  environment       = var.environment
-  origin_domain_name = module.s3.bucket_domain_name
-  bucket_name       = module.s3.bucket_id
-  aliases           = [local.frontend_hosted_domain]
-  certificate_arn   = module.acm.certificate_arn
-  tags              = local.common_tags
-}
-
-resource "aws_route53_record" "frontend_alias" {
-  zone_id = var.route53_hosted_zone_id
-  name    = local.frontend_hosted_domain
-  type    = "A"
-
-  alias {
-    name                   = module.cloudfront.domain_name
-    zone_id                = module.cloudfront.hosted_zone_id
-    evaluate_target_health = false
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
   }
+  tags = { Name = "${var.project_name}-${var.environment}-public-rt" }
 }
 
-resource "aws_route53_record" "backend_alias" {
-  zone_id = var.route53_hosted_zone_id
-  name    = local.backend_hosted_domain
-  type    = "A"
+resource "aws_route_table_association" "public_a" {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public.id
+}
 
-  alias {
-    name                   = module.alb.dns_name
-    zone_id                = module.alb.zone_id
-    evaluate_target_health = true
+resource "aws_route_table_association" "public_b" {
+  subnet_id      = aws_subnet.public_b.id
+  route_table_id = aws_route_table.public.id
+}
+
+# ---------------------------------------------------------------------------
+# Security Groups
+# ---------------------------------------------------------------------------
+resource "aws_security_group" "backend" {
+  name        = "${var.project_name}-${var.environment}-backend-sg"
+  description = "Allow traffic to the Traqora backend service"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "HTTP"
+    from_port   = 3001
+    to_port     = 3001
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "${var.project_name}-${var.environment}-backend-sg" }
+}
+
+# ---------------------------------------------------------------------------
+# RDS (PostgreSQL)
+# ---------------------------------------------------------------------------
+resource "aws_db_subnet_group" "main" {
+  name       = "${var.project_name}-${var.environment}-db-subnet"
+  subnet_ids = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  tags       = { Name = "${var.project_name}-${var.environment}-db-subnet" }
+}
+
+resource "aws_db_instance" "main" {
+  identifier             = "${var.project_name}-${var.environment}-db"
+  engine                 = "postgres"
+  engine_version         = "16"
+  instance_class         = var.environment == "production" ? "db.r6g.large" : "db.t4g.micro"
+  allocated_storage      = var.environment == "production" ? 100 : 20
+  db_name                = "traqora"
+  username               = "traqora"
+  password               = var.db_password
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  vpc_security_group_ids = [aws_security_group.backend.id]
+  skip_final_snapshot    = var.environment != "production"
+  multi_az               = var.environment == "production"
+
+  tags = { Name = "${var.project_name}-${var.environment}-db" }
+}
+
+# ---------------------------------------------------------------------------
+# ECS Cluster — Backend
+# ---------------------------------------------------------------------------
+resource "aws_ecs_cluster" "backend" {
+  name = "${var.project_name}-${var.environment}-backend"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  tags = { Name = "${var.project_name}-${var.environment}-backend" }
+}
+
+resource "aws_ecs_task_definition" "backend" {
+  family                   = "${var.project_name}-${var.environment}-backend"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = var.environment == "production" ? "1024" : "256"
+  memory                   = var.environment == "production" ? "2048" : "512"
+
+  container_definitions = jsonencode([
+    {
+      name      = "backend"
+      image     = var.backend_image
+      essential = true
+      portMappings = [
+        {
+          containerPort = 3001
+          hostPort      = 3001
+          protocol      = "tcp"
+        }
+      ]
+      environment = [
+        { name = "NODE_ENV", value = var.environment },
+        { name = "PORT", value = "3001" },
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/${var.project_name}-${var.environment}-backend"
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "backend"
+        }
+      }
+    }
+  ])
+
+  tags = { Name = "${var.project_name}-${var.environment}-backend-task" }
+}
+
+resource "aws_ecs_service" "backend" {
+  name            = "${var.project_name}-${var.environment}-backend"
+  cluster         = aws_ecs_cluster.backend.id
+  task_definition = aws_ecs_task_definition.backend.arn
+  desired_count   = var.environment == "production" ? 2 : 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+    security_groups  = [aws_security_group.backend.id]
+    assign_public_ip = true
+  }
+
+  tags = { Name = "${var.project_name}-${var.environment}-backend-svc" }
 }

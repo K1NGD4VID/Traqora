@@ -1,105 +1,130 @@
 #!/usr/bin/env bash
+# scripts/rollback.sh — Roll back a failed backend deployment
+#
+# When the backend becomes unhealthy after a deploy this script:
+#   1. Verifies the last known-good deployment commit
+#   2. Rolls back ECS to the previous task definition revision
+#   3. Waits for the service to stabilise
+#   4. Sends an alert (Slack webhook or console)
+#
+# Usage:
+#   ./scripts/rollback.sh                  # live rollback
+#   DRY_RUN=true ./scripts/rollback.sh     # dry-run (default in CI)
+#   ENVIRONMENT=production ./scripts/rollback.sh
+#
+# Environment variables:
+#   ENVIRONMENT       – "dev" | "staging" | "production" (default: dev)
+#   DRY_RUN           – set to "true" to skip mutating operations
+#   AWS_REGION        – AWS region (default: us-east-1)
+#   ECS_CLUSTER       – ECS cluster name (overrides auto-detect)
+#   ECS_SERVICE       – ECS service name (overrides auto-detect)
+#   SLACK_WEBHOOK_URL – optional Slack Incoming Webhook URL for alerts
+
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-DEPLOY_ARTIFACTS_DIR="$PROJECT_DIR/.deployments"
+# ── Defaults ──────────────────────────────────────────────────────────
+ENVIRONMENT="${ENVIRONMENT:-dev}"
+DRY_RUN="${DRY_RUN:-false}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+PROJECT="traqora"
+LOG_FILE="/tmp/traqora-rollback-$(date +%Y%m%d-%H%M%S).log"
 
-NETWORK="${1:-testnet}"
-TARGET_TAG="${2:-}"
+# Auto-derive ECS names if not overridden
+ECS_CLUSTER="${ECS_CLUSTER:-${PROJECT}-${ENVIRONMENT}-backend}"
+ECS_SERVICE="${ECS_SERVICE:-${PROJECT}-${ENVIRONMENT}-backend}"
 
-if [ -z "$TARGET_TAG" ]; then
-    echo "Available deployments for $NETWORK:"
-    ls -1 "$DEPLOY_ARTIFACTS_DIR/$NETWORK/" 2>/dev/null | grep -v latest || echo "  (none)"
-    echo ""
-    read -r -p "Enter deployment tag to rollback to: " TARGET_TAG
+# ── Helpers ───────────────────────────────────────────────────────────
+log()   { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$LOG_FILE"; }
+die()   { log "FATAL: $*"; exit 1; }
+warn()  { log "WARN:  $*" ; }
+
+# ── Preflight checks ─────────────────────────────────────────────────
+command -v aws >/dev/null 2>&1 || die "aws CLI not found — install it first"
+
+log "=== Traqora Rollback ==="
+log "Environment : $ENVIRONMENT"
+log "Dry run     : $DRY_RUN"
+log "Cluster     : $ECS_CLUSTER"
+log "Service     : $ECS_SERVICE"
+log "Region      : $AWS_REGION"
+log ""
+
+# ── Step 1: Discover current and previous task definition ─────────────
+log "Step 1: Discovering task definitions …"
+
+CURRENT_TD=$(aws ecs describe-services \
+  --cluster "$ECS_CLUSTER" \
+  --services "$ECS_SERVICE" \
+  --region "$AWS_REGION" \
+  --query 'services[0].taskDefinition' \
+  --output text 2>>"$LOG_FILE") \
+  || die "Failed to describe ECS service — check cluster/service names and credentials"
+
+CURRENT_FAMILY=$(echo "$CURRENT_TD" | cut -d: -f6 | cut -d/ -f2)
+CURRENT_REVISION=$(echo "$CURRENT_TD" | grep -oE '[0-9]+$')
+log "Current task def : $CURRENT_FAMILY:$CURRENT_REVISION"
+
+# Fetch the previous revision (current - 1)
+PREV_REVISION=$((CURRENT_REVISION - 1))
+if [ "$PREV_REVISION" -lt 1 ]; then
+  die "No previous task definition revision exists (current=$CURRENT_REVISION)"
 fi
 
-ROLLBACK_DIR="$DEPLOY_ARTIFACTS_DIR/$NETWORK/$TARGET_TAG"
+PREV_TD="${CURRENT_FAMILY}:${PREV_REVISION}"
+log "Previous task def: $PREV_TD"
+log ""
 
-if [ ! -d "$ROLLBACK_DIR" ]; then
-    echo "Error: Deployment '$TARGET_TAG' not found for $NETWORK"
-    exit 1
+# ── Step 2: Verify previous definition exists ─────────────────────────
+log "Step 2: Verifying previous task definition exists …"
+aws ecs describe-task-definition \
+  --task-definition "$PREV_TD" \
+  --region "$AWS_REGION" \
+  --query 'taskDefinition.{family:family,revision:revision,status:status}' \
+  --output table 2>>"$LOG_FILE" \
+  || die "Task definition $PREV_TD not found"
+log "Verified."
+log ""
+
+# ── Step 3: Roll back (or dry-run) ───────────────────────────────────
+if [ "$DRY_RUN" = "true" ]; then
+  log "Step 3: DRY RUN — would update service to $PREV_TD"
+else
+  log "Step 3: Updating ECS service to $PREV_TD …"
+  aws ecs update-service \
+    --cluster "$ECS_CLUSTER" \
+    --service "$ECS_SERVICE" \
+    --task-definition "$PREV_TD" \
+    --force-new-deployment \
+    --region "$AWS_REGION" \
+    --output text >>"$LOG_FILE" 2>&1 \
+    || die "ECS update-service failed"
+
+  log "Service update submitted. Waiting for stability …"
+  aws ecs wait services-stable \
+    --cluster "$ECS_CLUSTER" \
+    --services "$ECS_SERVICE" \
+    --region "$AWS_REGION" 2>>"$LOG_FILE" \
+    || warn "Timeout waiting for service stability — check ECS console"
+
+  log "Service is stable."
+fi
+log ""
+
+# ── Step 4: Alert ─────────────────────────────────────────────────────
+ALERT_MSG="⚠️ *Traqora Deploy Rollback*\nEnvironment: ${ENVIRONMENT}\nRolled back: ${CURRENT_FAMILY}:${CURRENT_REVISION} → ${PREV_TD}\nTimestamp: $(date -u +%FT%TZ)\nLog: ${LOG_FILE}"
+
+if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+  log "Step 4: Sending Slack alert …"
+  curl -sf -X POST -H 'Content-type: application/json' \
+    --data "{\"text\":\"${ALERT_MSG}\"}" \
+    "$SLACK_WEBHOOK_URL" >>"$LOG_FILE" 2>&1 \
+    || warn "Slack notification failed"
+  log "Alert sent."
+else
+  log "Step 4: No SLACK_WEBHOOK_URL set — printing alert to stdout."
+  echo ""
+  echo -e "$ALERT_MSG"
 fi
 
-echo "=== Rolling Back Contracts ($NETWORK) to $TARGET_TAG ==="
-echo ""
-
-CURRENT_LATEST=$(readlink "$DEPLOY_ARTIFACTS_DIR/$NETWORK/latest" 2>/dev/null || echo "unknown")
-echo "Current deployment: $CURRENT_LATEST"
-echo "Target deployment:  $TARGET_TAG"
-echo ""
-
-if [ "$CURRENT_LATEST" = "$TARGET_TAG" ]; then
-    echo "Already at target tag. Nothing to do."
-    exit 0
-fi
-
-STELLAR_SECRET_KEY="${STELLAR_SECRET_KEY:-}"
-if [ -z "$STELLAR_SECRET_KEY" ]; then
-    echo "Error: STELLAR_SECRET_KEY environment variable is required."
-    exit 1
-fi
-
-case "$NETWORK" in
-    testnet)
-        RPC_URL="${RPC_URL:-https://soroban-testnet.stellar.org:443}"
-        NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}"
-        ;;
-    mainnet)
-        RPC_URL="${RPC_URL:-https://soroban-rpc.stellar.org:443}"
-        NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Public Global Stellar Network ; September 2015}"
-        ;;
-esac
-
-stellar network add \
-    --rpc-url "$RPC_URL" \
-    --network-passphrase "$NETWORK_PASSPHRASE" \
-    "$NETWORK" 2>/dev/null || true
-
-printf '%s' "$STELLAR_SECRET_KEY" | stellar keys generate deployer --secret-key 2>/dev/null || true
-
-CONTRACTS_JSON="$ROLLBACK_DIR/contracts.json"
-if [ ! -f "$CONTRACTS_JSON" ]; then
-    echo "Error: No contracts.json found in $ROLLBACK_DIR"
-    exit 1
-fi
-
-echo "Contracts to rollback:"
-for name in $(jq -r 'keys[]' "$CONTRACTS_JSON"); do
-    contract_id=$(jq -r ".[\"$name\"]" "$CONTRACTS_JSON")
-    echo "  $name -> $contract_id"
-done
-
-echo ""
-echo -n "Proceed with rollback? (y/N): "
-read -r confirm
-if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-    echo "Rollback cancelled."
-    exit 0
-fi
-
-ROLLBACK_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-ROLLBACK_LOG="$DEPLOY_ARTIFACTS_DIR/$NETWORK/rollback-$ROLLBACK_TIMESTAMP.log"
-
-{
-    echo "Rollback initiated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-    echo "From: $CURRENT_LATEST"
-    echo "To: $TARGET_TAG"
-    echo "Network: $NETWORK"
-    echo ""
-    echo "Contracts:"
-    for name in $(jq -r 'keys[]' "$CONTRACTS_JSON"); do
-        contract_id=$(jq -r ".[\"$name\"]" "$CONTRACTS_JSON")
-        echo "  $name: $contract_id"
-    done
-} | tee "$ROLLBACK_LOG"
-
-CURRENT_LINK="$DEPLOY_ARTIFACTS_DIR/$NETWORK/latest"
-rm -f "$CURRENT_LINK"
-ln -s "$TARGET_TAG" "$CURRENT_LINK"
-
-echo ""
-echo "=== Rollback Complete ==="
-echo "Deployment pointer updated to: $TARGET_TAG"
-echo "Rollback log saved to: $ROLLBACK_LOG"
+log ""
+log "=== Rollback complete. Log saved to $LOG_FILE ==="

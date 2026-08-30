@@ -222,12 +222,19 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 - Validate whether the failure is code, environment, or infrastructure related.
 
 **Resolution:**
-- Roll back to the previous working version.
+- Run `./scripts/rollback.sh` (with `DRY_RUN=true` first to preview, then without to execute).
+- If the automated script fails, manually revert to the previous ECS task definition or container image.
 - Fix the root cause in a staging environment.
 - Re-deploy after verification.
 
+**Dry-run test:**
+```bash
+DRY_RUN=true ENVIRONMENT=production ./scripts/rollback.sh   # verify without mutating
+ENVIRONMENT=production ./scripts/rollback.sh                # execute rollback
+```
+
 **Prevention:**
 - Use canary deployments and staged verification.
-- Validate rollback steps before every production release.
+- Validate rollback steps (including the dry-run) before every production release.
 
 **Dashboard:** deployment success, service health after release.
